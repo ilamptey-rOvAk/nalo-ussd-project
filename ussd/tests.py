@@ -1,13 +1,21 @@
 import json
+from unittest.mock import patch
 
 from django.test import TestCase
 
 from ussd.models import USSDSession
-from ussd.views import NALO_USER_ID, welcome_message
+from ussd.views import welcome_message
+
+USER_ID = "AIK12345"
 
 
 class UssdMenuTests(TestCase):
-    def post(self, userdata, msgtype, session_id="session-1", user_id=NALO_USER_ID):
+    def setUp(self):
+        patcher = patch("ussd.views.NALO_USER_ID", None)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def post(self, userdata, msgtype, session_id="session-1", user_id=USER_ID):
         payload = {
             "USERID": user_id,
             "MSISDN": "233244123456",
@@ -92,7 +100,18 @@ class UssdMenuTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("Hello. Welcome.", body["MSG"])
 
-    def test_wrong_user_id_is_rejected(self):
+    def test_any_user_id_is_accepted_when_none_is_configured(self):
+        response, body = self.post("*920#", True, user_id="SOMEONE")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Hello. Welcome.", body["MSG"])
+
+    def test_overlong_user_id_is_rejected(self):
+        response, body = self.post("*920#", True, user_id="X" * 21)
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(body["error"], "Invalid USERID")
+
+    @patch("ussd.views.NALO_USER_ID", "AIK12345")
+    def test_wrong_user_id_is_rejected_when_one_is_configured(self):
         response, body = self.post("*920#", True, user_id="SOMEONE")
         self.assertEqual(response.status_code, 400)
         self.assertEqual(body["error"], "Invalid USERID")

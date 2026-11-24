@@ -7,7 +7,7 @@ from django.views.decorators.csrf import csrf_exempt
 from .models import USSDSession
 
 # Nalo assigns this id. Override it on Render with NALO_USER_ID.
-NALO_USER_ID = os.getenv("NALO_USER_ID", "AIK12345")
+NALO_USER_ID = os.getenv("NALO_USER_ID")
 
 # Screen 1. The word after "feeling" is what later screens repeat.
 FEELINGS = {
@@ -108,7 +108,10 @@ def ussd_handler(request):
     session_id = data.get("SESSIONID")
     incoming_msg_type = as_bool(data.get("MSGTYPE"))
 
-    if not isinstance(user_id, str) or user_id != NALO_USER_ID:
+    if not isinstance(user_id, str) or len(user_id) > 20:
+        return JsonResponse({"error": "Invalid USERID"}, status=400)
+
+    if NALO_USER_ID and user_id != NALO_USER_ID:
         return JsonResponse({"error": "Invalid USERID"}, status=400)
 
     if not isinstance(phone_number, str) or len(phone_number) != 12:

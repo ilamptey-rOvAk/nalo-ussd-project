@@ -29,7 +29,7 @@ SECRET_KEY = os.getenv('SECRET_KEY')
 
 DEBUG = os.getenv('DEBUG', 'False') == 'True'
 
-NALO_USER_ID = os.getenv('NALO_USER_ID', 'AIK12345')
+
 
 ALLOWED_HOSTS = ['localhost', '127.0.0.1', '.onrender.com']
 
