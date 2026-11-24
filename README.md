@@ -29,11 +29,13 @@ The application receives JSON requests from the NALO gateway and returns JSON re
 ## USSD Menu Flow
 
 1. User dials the assigned USSD shortcode.
-2. The application displays a welcome menu.
-3. User selects their current feeling.
-4. The application displays reasons associated with that feeling.
-5. User selects a reason.
-6. The application displays a confirmation message and ends the session.
+2. Welcome screen: `Hello. Welcome. How are you feeling today?` with `1. Feeling fine`, `2. Feeling sad`, `3. Feeling frisky`.
+3. Reason screen: `You are feeling fine because...` (or sad, or frisky). The same three options are shown every time: `1. Family issues`, `2. Money problems`, `3. Relationship issues`.
+4. Final screen ends the session. Example: `You are feeling sad because of family issues.` followed by `Get well soon.` Feeling fine and feeling frisky close with `Feel well soon.`
+
+Point the Nalo callback URL at `https://<your-render-host>/ussd/`. Nalo posts JSON (`USERID`, `MSISDN`, `USERDATA`, `MSGTYPE`, `SESSIONID`) and this app answers with `MSG` and `MSGTYPE` (`true` keeps the session open, `false` ends it).
+
+Set `NALO_USER_ID` to the user id Nalo gave you. The default in this project is `AIK12345`.
 
 ## Project Setup
 

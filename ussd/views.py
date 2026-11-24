@@ -1,218 +1,198 @@
 import json
+import os
+
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
+
 from .models import USSDSession
 
-# Create your views here.
+# Nalo assigns this id. Override it on Render with NALO_USER_ID.
+NALO_USER_ID = os.getenv("NALO_USER_ID", "AIK12345")
 
-feelings = {
-    '1': 'Fine',
-    '2': 'Sad',
-    '3': 'Feeling frisky'
+# Screen 1. The word after "feeling" is what later screens repeat.
+FEELINGS = {
+    "1": "fine",
+    "2": "sad",
+    "3": "frisky",
+}
+
+# Screen 2. The same three reasons are shown for every feeling.
+REASONS = {
+    "1": "family issues",
+    "2": "money problems",
+    "3": "relationship issues",
+}
+
+CLOSINGS = {
+    "fine": "Feel well soon.",
+    "sad": "Get well soon.",
+    "frisky": "Feel well soon.",
 }
 
 
-reasons = {
-    'Fine': [
-        'Good news or achievement',
-        'Good family relationships',
-        'Everything is going well'
-    ],
-
-    'Sad': [
-        'Relationship issues',
-        'Money problems',
-        'Family issues'
-    ],
-
-    'Feeling frisky': [
-        'Feeling romantic',
-        'Feeling playful',
-        'Feeling energetic'
-    ]
-}
+def welcome_message():
+    return (
+        "Hello. Welcome.\n"
+        "How are you feeling today?\n"
+        "1. Feeling fine\n"
+        "2. Feeling sad\n"
+        "3. Feeling frisky"
+    )
 
 
+def reason_message(feeling):
+    lines = [f"You are feeling {feeling} because..."]
+    for number, reason in REASONS.items():
+        lines.append(f"{number}. {reason.capitalize()}")
+    return "\n".join(lines)
+
+
+def closing_message(feeling, reason):
+    return (
+        f"You are feeling {feeling} because of {reason}.\n"
+        f"{CLOSINGS[feeling]}"
+    )
+
+
+def nalo_response(user_id, phone_number, user_input, session_id, message, keep_open):
+    return JsonResponse(
+        {
+            "USERID": user_id,
+            "MSISDN": phone_number,
+            "USERDATA": user_input,
+            "SESSIONID": session_id,
+            "MSG": message,
+            "MSGTYPE": keep_open,
+        }
+    )
+
+
+def as_bool(value):
+    """Nalo sends MSGTYPE as true/false, and sometimes as 1/0 or the strings."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int) and value in (0, 1):
+        return bool(value)
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in ("true", "1"):
+            return True
+        if lowered in ("false", "0"):
+            return False
+    return None
 
 
 @csrf_exempt
 def ussd_handler(request):
+    if request.method == "GET":
+        return JsonResponse({"status": "ok", "endpoint": "/ussd/"})
 
-    # Only accept POST requests
-    if request.method != 'POST':
-        return JsonResponse(
-            {'error': 'POST request required'},
-            status=405
-        )
+    if request.method != "POST":
+        return JsonResponse({"error": "POST request required"}, status=405)
 
-    # Read and validate incoming JSON
     try:
         data = json.loads(request.body)
     except (json.JSONDecodeError, UnicodeDecodeError):
-        return JsonResponse(
-            {'error': 'Invalid JSON data'},
-            status=400
-        )
+        return JsonResponse({"error": "Invalid JSON data"}, status=400)
 
     if not isinstance(data, dict):
-        return JsonResponse(
-            {'error': 'JSON data must be an object'},
-            status=400
-        )
+        return JsonResponse({"error": "JSON data must be an object"}, status=400)
 
-    # Check required fields
-    required_fields = ['USERID', 'MSISDN', 'SESSIONID']
-
-    for field in required_fields:
+    for field in ("USERID", "MSISDN", "SESSIONID"):
         if not data.get(field):
-            return JsonResponse(
-                {'error': f'Missing required field: {field}'},
-                status=400
-            )
+            return JsonResponse({"error": f"Missing required field: {field}"}, status=400)
 
-    # Get incoming request values
-    user_id = data.get('USERID')
-    phone_number = data.get('MSISDN')
-    user_input = data.get('USERDATA', '')
-    session_id = data.get('SESSIONID')
-    incoming_msg_type = data.get('MSGTYPE')
+    user_id = data.get("USERID")
+    phone_number = data.get("MSISDN")
+    user_input = str(data.get("USERDATA", "")).strip()
+    session_id = data.get("SESSIONID")
+    incoming_msg_type = as_bool(data.get("MSGTYPE"))
 
-    # Validate NALO USERID
-    if not isinstance(user_id, str) or user_id != 'AIK12345':
-        return JsonResponse(
-            {'error': 'Invalid USERID'},
-            status=400
-        )
+    if not isinstance(user_id, str) or user_id != NALO_USER_ID:
+        return JsonResponse({"error": "Invalid USERID"}, status=400)
 
-    # Validate phone number
     if not isinstance(phone_number, str) or len(phone_number) != 12:
+        return JsonResponse({"error": "MSISDN must be 12 characters"}, status=400)
+
+    if len(user_input) > 120:
+        return JsonResponse({"error": "Invalid USERDATA"}, status=400)
+
+    if not isinstance(session_id, str) or len(session_id) > 100:
+        return JsonResponse({"error": "Invalid SESSIONID"}, status=400)
+
+    if incoming_msg_type is None:
         return JsonResponse(
-            {'error': 'MSISDN must be 12 characters'},
-            status=400
+            {"error": "MSGTYPE must be a boolean (true/false or 1/0)"},
+            status=400,
         )
 
-    # Validate user input
-    if not isinstance(user_input, str) or len(user_input) > 120:
-        return JsonResponse(
-            {'error': 'Invalid USERDATA'},
-            status=400
-        )
-
-   
-    # Validate session ID
-    if not isinstance(session_id, str) or not session_id or len(session_id) > 100:
-        return JsonResponse(
-            {'error': 'Invalid SESSIONID'},
-            status=400
-        )
-
-    # Validate incoming message type (NALO supports bool or 1/0)
-    if isinstance(incoming_msg_type, int) and incoming_msg_type in (0, 1):
-        incoming_msg_type = bool(incoming_msg_type)
-    elif not isinstance(incoming_msg_type, bool):
-        return JsonResponse(
-            {'error': 'MSGTYPE must be a boolean (true/false or 1/0)'},
-            status=400
-        )
-
-
-    # Find an existing session or create a new one
     session, created = USSDSession.objects.get_or_create(
         session_id=session_id,
         defaults={
-            'user_id': user_id,
-            'phone_number': phone_number
-        }
+            "user_id": user_id,
+            "phone_number": phone_number,
+        },
     )
 
-    # First screen: display the feeling menu
-    if created:
-
-        session.current_step = 'feeling'
+    # MSGTYPE true means the subscriber just dialled. Always start at welcome,
+    # even if Nalo reuses a session id.
+    if incoming_msg_type or created:
+        session.current_step = "feeling"
+        session.feeling = ""
+        session.reason = ""
         session.save()
-
-        message = (
-            f'Welcome to {user_id}\n'
-            'How are you feeling today?\n'
-            '1. Fine\n'
-            '2. Sad\n'
-            '3. Feeling frisky'
+        return nalo_response(
+            user_id, phone_number, user_input, session_id, welcome_message(), True
         )
 
-        msg_type = True
-
-    # Second screen: process the selected feeling
-    elif session.current_step == 'feeling':
-
-        if user_input in feelings:
-
-            session.feeling = feelings[user_input]
-            session.current_step = 'reason'
-            session.save()
-
-            reason_options = reasons[session.feeling]
-
-            message = f'You are feeling {session.feeling}. Why?\n'
-
-            for number, reason in enumerate(reason_options, start=1):
-                message += f'{number}. {reason}\n'
-
-        else:
-
-            message = (
-                'How are you feeling today?\n'
-                '1. Fine\n'
-                '2. Sad\n'
-                '3. Feeling frisky'
+    if session.current_step == "feeling":
+        feeling = FEELINGS.get(user_input)
+        if feeling is None:
+            return nalo_response(
+                user_id, phone_number, user_input, session_id, welcome_message(), True
             )
 
-        msg_type = True
+        session.feeling = feeling
+        session.current_step = "reason"
+        session.save()
+        return nalo_response(
+            user_id,
+            phone_number,
+            user_input,
+            session_id,
+            reason_message(feeling),
+            True,
+        )
 
-    # Third screen: process the selected reason
-    elif session.current_step == 'reason':
-
-        reason_options = reasons[session.feeling]
-
-        if user_input in ['1', '2', '3']:
-
-            selected_reason = reason_options[int(user_input) - 1]
-
-            session.reason = selected_reason
-            session.current_step = 'complete'
-            session.save()
-
-            message = (
-                'Thank you!\n'
-                f'You are feeling {session.feeling} because: '
-                f'{session.reason}'
+    if session.current_step == "reason":
+        reason = REASONS.get(user_input)
+        if reason is None:
+            return nalo_response(
+                user_id,
+                phone_number,
+                user_input,
+                session_id,
+                reason_message(session.feeling),
+                True,
             )
 
-            msg_type = False
+        session.reason = reason
+        session.current_step = "complete"
+        session.save()
+        return nalo_response(
+            user_id,
+            phone_number,
+            user_input,
+            session_id,
+            closing_message(session.feeling, reason),
+            False,
+        )
 
-        else:
-
-            message = f'You are feeling {session.feeling}. Why?\n'
-
-            for number, reason in enumerate(reason_options, start=1):
-                message += f'{number}. {reason}\n'
-
-            msg_type = True
-
-    # Session already completed
-    else:
-
-        message = 'Thank you for using our service.'
-        msg_type = False
-
-    # Prepare response for NALO
-    response = {
-        'USERID': user_id,
-        'MSISDN': phone_number,
-        'USERDATA': user_input,
-        'MSG': message,
-        'MSGTYPE': msg_type
-    }
-
-    return JsonResponse(response)
-
-   
+    return nalo_response(
+        user_id,
+        phone_number,
+        user_input,
+        session_id,
+        "Thank you for using our service.",
+        False,
+    )
