@@ -98,15 +98,23 @@ def ussd_handler(request):
             status=400
         )
 
+   
     # Validate session ID
-    if not isinstance(session_id, str) or len(session_id) > 100:
-
-    # Validate incoming message type
-     if not isinstance(incoming_msg_type, bool):
+    if not isinstance(session_id, str) or not session_id or len(session_id) > 100:
         return JsonResponse(
-            {'error': 'MSGTYPE must be a boolean'},
+            {'error': 'Invalid SESSIONID'},
             status=400
         )
+
+    # Validate incoming message type (NALO supports bool or 1/0)
+    if isinstance(incoming_msg_type, int) and incoming_msg_type in (0, 1):
+        incoming_msg_type = bool(incoming_msg_type)
+    elif not isinstance(incoming_msg_type, bool):
+        return JsonResponse(
+            {'error': 'MSGTYPE must be a boolean (true/false or 1/0)'},
+            status=400
+        )
+
 
     # Find an existing session or create a new one
     session, created = USSDSession.objects.get_or_create(
@@ -200,10 +208,11 @@ def ussd_handler(request):
     response = {
         'USERID': user_id,
         'MSISDN': phone_number,
+        'USERDATA': user_input,
         'MSG': message,
         'MSGTYPE': msg_type
     }
 
     return JsonResponse(response)
 
-    return JsonResponse({'error': 'POST request required'}, status=405)
+   
